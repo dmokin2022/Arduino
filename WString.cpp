@@ -22,118 +22,6 @@
 #include "WString.h"
 
 /*********************************************/
-/*  Extra Functions	                         */
-/*********************************************/
-
-char *dtostrf (double val, signed char width, unsigned char prec, char *sout) {
-  //asm(".global _printf_float"); // Commented out, not available with emscripten. 
-
-  char fmt[20];
-  sprintf(fmt, "%%%d.%df", width, prec);
-  sprintf(sout, fmt, val);
-  return sout;
-}
-
-char* ltoa( long value, char *string, int radix )
-{
-  char tmp[33];
-  char *tp = tmp;
-  long i;
-  unsigned long v;
-  int sign;
-  char *sp;
-
-  if ( string == NULL )
-  {
-    return 0 ;
-  }
-
-  if (radix > 36 || radix <= 1)
-  {
-    return 0 ;
-  }
-
-  sign = (radix == 10 && value < 0);
-  if (sign)
-  {
-    v = -value;
-  }
-  else
-  {
-    v = (unsigned long)value;
-  }
-
-  while (v || tp == tmp)
-  {
-    i = v % radix;
-    v = v / radix;
-    if (i < 10)
-      *tp++ = i+'0';
-    else
-      *tp++ = i + 'a' - 10;
-  }
-
-  sp = string;
-
-  if (sign)
-    *sp++ = '-';
-  while (tp > tmp)
-    *sp++ = *--tp;
-  *sp = 0;
-
-  return string;
-}
-
-char* itoa( int value, char *string, int radix )
-{
-  return ltoa( value, string, radix ) ;
-}
-
-char* ultoa( unsigned long value, char *string, int radix )
-{
-  char tmp[33];
-  char *tp = tmp;
-  long i;
-  unsigned long v = value;
-  char *sp;
-
-  if ( string == NULL )
-  {
-    return 0;
-  }
-
-  if (radix > 36 || radix <= 1)
-  {
-    return 0;
-  }
-
-  while (v || tp == tmp)
-  {
-    i = v % radix;
-    v = v / radix;
-    if (i < 10)
-      *tp++ = i+'0';
-    else
-      *tp++ = i + 'a' - 10;
-  }
-
-  sp = string;
-
-
-  while (tp > tmp)
-    *sp++ = *--tp;
-  *sp = 0;
-
-  return string;
-}
-
-char* utoa( unsigned long value, char *string, int radix )
-{
-  return ultoa( value, string, radix ) ;
-}
-
-
-/*********************************************/
 /*  Constructors                             */
 /*********************************************/
 
@@ -147,6 +35,12 @@ String::String(const String &value)
 {
 	init();
 	*this = value;
+}
+
+String::String(const __FlashStringHelper *pstr)
+{
+	init();
+	*this = pstr;
 }
 
 #if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__)
@@ -227,7 +121,7 @@ String::String(double value, unsigned char decimalPlaces)
 
 String::~String()
 {
-	free(buffer);
+	if (buffer) free(buffer);
 }
 
 /*********************************************/
@@ -284,11 +178,22 @@ String & String::copy(const char *cstr, unsigned int length)
 	return *this;
 }
 
+String & String::copy(const __FlashStringHelper *pstr, unsigned int length)
+{
+	if (!reserve(length)) {
+		invalidate();
+		return *this;
+	}
+	len = length;
+	strcpy_P(buffer, (PGM_P)pstr);
+	return *this;
+}
+
 #if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__)
 void String::move(String &rhs)
 {
 	if (buffer) {
-		if (capacity >= rhs.len) {
+		if (rhs && capacity >= rhs.len) {
 			strcpy(buffer, rhs.buffer);
 			len = rhs.len;
 			rhs.len = 0;
@@ -335,6 +240,14 @@ String & String::operator = (const char *cstr)
 	if (cstr) copy(cstr, strlen(cstr));
 	else invalidate();
 	
+	return *this;
+}
+
+String & String::operator = (const __FlashStringHelper *pstr)
+{
+	if (pstr) copy(pstr, strlen_P((PGM_P)pstr));
+	else invalidate();
+
 	return *this;
 }
 
@@ -421,6 +334,18 @@ unsigned char String::concat(double num)
 	return concat(string, strlen(string));
 }
 
+unsigned char String::concat(const __FlashStringHelper * str)
+{
+	if (!str) return 0;
+	int length = strlen_P((const char *) str);
+	if (length == 0) return 1;
+	unsigned int newlen = len + length;
+	if (!reserve(newlen)) return 0;
+	strcpy_P(buffer + len, (const char *) str);
+	len = newlen;
+	return 1;
+}
+
 /*********************************************/
 /*  Concatenate                              */
 /*********************************************/
@@ -495,6 +420,12 @@ StringSumHelper & operator + (const StringSumHelper &lhs, double num)
 	return a;
 }
 
+StringSumHelper & operator + (const StringSumHelper &lhs, const __FlashStringHelper *rhs)
+{
+	StringSumHelper &a = const_cast<StringSumHelper&>(lhs);
+	if (!a.concat(rhs))	a.invalidate();
+	return a;
+}
 
 /*********************************************/
 /*  Comparison                               */
@@ -809,6 +740,11 @@ long String::toInt(void) const
 
 float String::toFloat(void) const
 {
-	if (buffer) return float(atof(buffer));
+	return float(toDouble());
+}
+
+double String::toDouble(void) const
+{
+	if (buffer) return atof(buffer);
 	return 0;
 }
